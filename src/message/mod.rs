@@ -1,13 +1,11 @@
-#![no_std]
 
-use core::result::Result;
-
-// Import submodule versions of encode/decode functions
 use bincode::{
     borrow_decode_from_slice, config::Configuration, error::{DecodeError as BincodeDecodeError, EncodeError as BincodeEncodeError}, BorrowDecode, Encode
 };
-use bincode::encode_into_slice;   // <--- from bincode::enc
-use bincode::decode_from_slice;    // <--- from bincode::de
+use bincode::encode_into_slice;
+use bincode::decode_from_slice;
+
+
 
 // ============================= PAYLOAD TYPES ============================= //
 
@@ -42,11 +40,12 @@ pub enum MessageType {
 
 // ============================= MESSAGE + FRAME ============================= //
 
+/// Our frame includes a start byte, a `Message`, and an end byte.
 #[derive(Encode, BorrowDecode)]
 pub struct MessageFrame {
-    pub start: u8,         // e.g. 0x7E
-    pub message: Message,  // from + to + message_type + data[55]
-    pub end: u8,           // e.g. 0x7F
+    pub start: u8,        // e.g. 0x7E
+    pub message: Message, // from + to + message_type + data[55]
+    pub end: u8,          // e.g. 0x7F
 }
 
 #[derive(Debug)]
@@ -56,8 +55,6 @@ pub struct Message {
     pub message_type: u8,
     pub data: [u8; 55],
 }
-
-// --- Bincode Encode/Decode for `Message` --- //
 
 impl bincode::Encode for Message {
     fn encode<E: bincode::enc::Encoder>(
@@ -106,7 +103,7 @@ pub enum Payload<'a> {
     Gps(&'a Gps),
 }
 
-/// Encode the given payload into a `MessageFrame` stored in `out_serial_buf` without allocation.
+/// Encode the given payload into a `MessageFrame`, writing into `out_serial_buf`.
 ///
 /// Returns the number of bytes written to `out_serial_buf`.
 pub fn encode_payload(
@@ -115,14 +112,12 @@ pub fn encode_payload(
     to: u16,
     start_byte: u8,
     end_byte: u8,
-    out_serial_buf: &mut [u8], // buffer for final encoding
+    out_serial_buf: &mut [u8],
 ) -> Result<usize, EncodeError> {
     let config = bincode::config::standard();
 
-    // We'll do a local scratch buffer to hold the payload
-    let mut local_payload_buf = [0u8; 64];  // enough for small structs
-
-    // 1) encode payload to local scratch
+    // We'll do a local scratch buffer to hold just the encoded payload
+    let mut local_payload_buf = [0u8; 64];  // enough for small payloads
     let payload_size = match payload {
         Payload::Attitude(att) => encode_into_slice(att, &mut local_payload_buf[..], config),
         Payload::Altitude(alt) => encode_into_slice(alt, &mut local_payload_buf[..], config),
@@ -133,17 +128,18 @@ pub fn encode_payload(
         return Err(EncodeError::PayloadTooLarge(payload_size));
     }
 
-    // 2) Copy into Message data
+    // Copy payload bytes into the 55-byte data array
     let mut data = [0u8; 55];
     data[..payload_size].copy_from_slice(&local_payload_buf[..payload_size]);
 
-    // 3) Build the `MessageFrame`
+    // Determine message type
     let msg_type = match payload {
         Payload::Attitude(_) => MessageType::Attitude as u8,
         Payload::Altitude(_) => MessageType::Altitude as u8,
         Payload::Gps(_)      => MessageType::Gps as u8,
     };
 
+    // Construct the frame
     let message = Message {
         from,
         to,
@@ -157,7 +153,7 @@ pub fn encode_payload(
         end: end_byte,
     };
 
-    // 4) encode the frame into the caller’s buffer
+    // Encode to the caller’s buffer
     let written = encode_into_slice(&frame, out_serial_buf, config)?;
     Ok(written)
 }
@@ -166,13 +162,13 @@ pub fn encode_payload(
 
 #[derive(Debug)]
 pub enum DecodeError {
-    BincodeError,
+    BincodeError(BincodeDecodeError),
     UnknownMessageType(u8),
 }
 
 impl From<BincodeDecodeError> for DecodeError {
     fn from(e: BincodeDecodeError) -> Self {
-        DecodeError::BincodeError
+        DecodeError::BincodeError(e)
     }
 }
 
@@ -183,15 +179,14 @@ pub enum DecodedPayload {
     Gps(Gps),
 }
 
-/// Decode a `MessageFrame` from bytes.
+/// Decode a `MessageFrame` from bytes, returning `(frame, bytes_read)`.
 pub fn decode_frame(incoming: &[u8]) -> Result<(MessageFrame, usize), DecodeError> {
     let config = bincode::config::standard();
     let (frame, bytes_read) = borrow_decode_from_slice::<MessageFrame, _>(incoming, config)?;
-    // optionally check frame.start, frame.end, etc.
     Ok((frame, bytes_read))
 }
 
-/// Decode the payload inside the frame’s `message` field, picking the right type.
+/// Decode the 55-byte data in `frame.message` into the correct payload type.
 pub fn decode_payload(frame: &MessageFrame) -> Result<DecodedPayload, DecodeError> {
     let config = bincode::config::standard();
 
@@ -212,52 +207,6 @@ pub fn decode_payload(frame: &MessageFrame) -> Result<DecodedPayload, DecodeErro
     }
 }
 
-// ============================= EXAMPLE USAGE ============================= //
 
-/// Example usage (not a real main, but a demonstration of usage in no_std style).
-pub fn example_usage() -> Result<(), DecodeError> {
-    // Create a sample Attitude payload
-    let att = Attitude { roll: 1.0, pitch: 2.0, yaw: 3.0 };
 
-    // Prepare a buffer for encoded data
-    let mut out_buf = [0u8; 128];
 
-    // Encode the payload
-    let written = encode_payload(
-        Payload::Attitude(&att),
-        /* from= */ 111,
-        /* to=   */ 222,
-        /* start_byte= */ 0x7E,
-        /* end_byte=   */ 0x7F,
-        &mut out_buf,
-    ).map_err(|e| match e {
-        EncodeError::Bincode(be) => DecodeError::BincodeError,
-        EncodeError::PayloadTooLarge(_) => {
-            // handle or convert however you wish
-            DecodeError::UnknownMessageType(0)
-        }
-    })?;
-
-    // out_buf[..written] has the complete serialized frame.
-
-    // Decode the frame
-    let (decoded_frame, bytes_read) = decode_frame(&out_buf[..written])?;
-
-    // Decode the payload
-    let payload = decode_payload(&decoded_frame)?;
-    match payload {
-        DecodedPayload::Attitude(a) => {
-            // In no_std, we can’t print easily, but we can debug_assert or do something else
-            debug_assert_eq!(a.roll, 1.0);
-            debug_assert_eq!(a.pitch, 2.0);
-            debug_assert_eq!(a.yaw, 3.0);
-        }
-        _ => {
-            // If we expected Attitude and got something else, handle the error
-            return Err(DecodeError::UnknownMessageType(decoded_frame.message.message_type));
-        }
-    }
-
-    debug_assert_eq!(bytes_read, written);
-    Ok(())
-}
