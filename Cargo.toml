@@ -8,6 +8,4 @@ name = "skylink-cli"
 path = "src/bin/main.rs"
 
 [dependencies]
-postcard = "1.1.1"
-heapless = "0.7"
-serde = { version = "1", default-features = false }
+bincode = "2.0.1"

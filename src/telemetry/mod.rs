@@ -1,13 +1,13 @@
-use serde::{Deserialize, Serialize};
+use bincode::{Decode, Encode};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Decode, Encode, Clone)]
 pub struct Attitude {
     pub roll: f32,  // degrees
     pub pitch: f32, // degrees
     pub yaw: f32,   // degrees
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Decode, Encode, Clone)]
 pub struct Altitude {
     pub altitude: f32, // meters
 }

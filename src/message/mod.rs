@@ -1,57 +1,54 @@
-const START: u8 = 0xCC;
-const END: u8 = 0xFF;
+pub mod encoder;
+pub mod decoder;
 
+// use postcard::{from_bytes, to_vec, to_slice_cobs};
+use crate::{errors, telemetry};
+use bincode::{BorrowDecode, Decode, Encode};
+
+
+pub enum MessageType {
+    Heartbeat = 0x01,
+    Attitude = 0x02,
+    Altitude = 0x03,
+}
+
+#[derive(Encode, BorrowDecode)]
+pub struct MessageFrame {
+    pub start: u8,          // 1
+    pub message: Message,   // 60
+    pub crc8: u8,           // 1
+    // total size:      // 62
+}
+
+#[derive(Debug)]
 pub struct Message {
-    start: u8, // 0
-    pub payload: [u8; 100], // 1..101
-    crc: u8, // 101
-    end: u8,
+    pub from: u16,          // 2
+    pub to: u16,            // 2
+    pub message_type: u8,   // 1
+    pub data: [u8; 55],     // 55
+    // total size:      // 60
 }
 
-pub struct Payload {
-    pub kind: u8,
-    pub data: [u8; 99]
+impl bincode::Encode for Message {
+    fn encode<E: bincode::enc::Encoder>(
+        &self, 
+        encoder: &mut E
+    ) -> Result<(), bincode::error::EncodeError> {
+        bincode::Encode::encode(&self.from, encoder)?;
+        Ok(())
+    }
 }
 
-impl Message {
-    pub fn new(payload: Payload) -> Self {
-        let mut payload_buf: [u8; 100] = [0u8; 100];
-        payload_buf[0] = payload.kind;
-        for i in 0..payload.data.len() {
-            payload_buf[i+1] = payload.data[i];
-        }
-
-        Message { 
-            start: START, 
-            payload: payload_buf, 
-            crc: 0, 
-            end: END,
-        }
-    }
-
-    pub fn to_bytes(&self) -> [u8;103] {
-        let mut buffer = [0u8; 103];
-
-        buffer[0] = self.start;
-        buffer[1..101].copy_from_slice(&self.payload);
-        buffer[101] = self.crc;
-        buffer[102] = self.end;
-
-        buffer
-    }
-
-    pub fn from_bytes(bytes: &[u8; 103]) -> Message {
-        // Ensure that the first and last bytes are valid marker
-
-        let mut payload = [0u8; 100];
-        payload.copy_from_slice(&bytes[1..101]);
-
-        Message {
-            start: bytes[0],
-            payload,
-            crc: bytes[101],
-            end: bytes[102],
-        }
+impl<'de, Context> bincode::BorrowDecode<'de, Context> for Message {
+    fn borrow_decode<D: bincode::de::BorrowDecoder<'de, Context = Context>>(
+        decoder: &mut D
+    ) -> Result<Self, bincode::error::DecodeError> {
+        Ok(Self { 
+            from: bincode::BorrowDecode::borrow_decode(decoder)?, 
+            to:  bincode::BorrowDecode::borrow_decode(decoder)?, 
+            message_type:  bincode::BorrowDecode::borrow_decode(decoder)?, 
+            data:  bincode::BorrowDecode::borrow_decode(decoder)?, 
+        })
     }
 }
 

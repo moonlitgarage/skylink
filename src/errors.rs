@@ -1,33 +1,32 @@
 use core::fmt::Display;
-use postcard::Error as PostcardError;
 
-// Error handling example (add to your errors.rs)
 #[derive(Debug)]
-pub enum Error {
-    Serialization(PostcardError),
-    Deserialization(PostcardError),
+pub enum SkylinkError {
+    // Serialization(PostcardError),
+    // Deserialization(PostcardError),
     Encoding,
     Decoding,
     CrcMismatch,
     FrameTooLarge,
     InvalidFrame,
     VersionMismatch,
+    UnkownMessageType,
 
-    PostcardError(postcard::Error),
+    // PostcardError(postcard::Error),
     TryFromSliceError(core::array::TryFromSliceError),
 }
 
-impl From<PostcardError> for Error {
-    fn from(err: postcard::Error) -> Self {
-        Error::PostcardError(err)
-    }
-}
+// impl From<PostcardError> for SkylinkError {
+//     fn from(err: postcard::Error) -> Self {
+//         SkylinkError::PostcardError(err)
+//     }
+// }
 
-impl Display for Error {
+impl Display for SkylinkError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            Error::PostcardError(err) => write!(f, "Postcard error: {:?}", err),
-            Error::TryFromSliceError(err) => write!(f, "TryFromSlice error: {:?}", err),
+            // SkylinkError::PostcardError(err) => write!(f, "Postcard error: {:?}", err),
+            SkylinkError::TryFromSliceError(err) => write!(f, "TryFromSlice error: {:?}", err),
             _ => write!(f, "Unkown error"),
         }
     }
